@@ -20,7 +20,7 @@
             section {
                 max-width: 50em;
             }
-            
+
             form {
                 padding: 1em;
                 border: 1px solid black;
@@ -52,7 +52,6 @@
             a.hidden {
                 display: none;
             }
-
 
             div.errors {
                 color: darkred;
@@ -93,7 +92,8 @@
         <script>
             const HEADERS = new Set(["lat", "lon", "name", "desc", "osmand:address", "osmand:color", "osmand:group"])
             const DEFAULT_COLOR = "#800080"
-            
+            const DEFAULT_GROUP = "Locations"
+
             function getTsvEl() {
                 const tsvEl = document.getElementById("tsv")
                 tsvEl.tsv = tsvEl.value.split('\n').map((r) => r.split('\t'))
@@ -112,6 +112,12 @@
                 inputEl.setCustomValidity(errorMessage)
                 const errorEl = inputEl.nextElementSibling
                 errorEl.innerHTML = errorMessage
+            }
+            
+            function clearError(inputEl) {
+                inputEl.setCustomValidity('')
+                const errorEl = inputEl.nextElementSibling
+                errorEl.innerHTML = ''
             }
 
             function validTsv(tsvEl) {
@@ -137,11 +143,11 @@
                 return true
             }
 
-            function gpxWrapperTemplate(content, colorGroupContent) {
+            function gpxWrapperTemplate(content, colorGroupContent, title) {
                 return `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
 <gpx version="1.1" creator="OsmAnd 4.9.10" xmlns="http://www.topografix.com/GPX/1/1" xmlns:osmand="https://osmand.net" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
   <metadata>
-    <name>favorites</name>
+    <name>${title}</name>
   </metadata>
   ${content()}
   <extensions>
@@ -153,28 +159,35 @@
             }
 
             function gpxElementTemplate(gpxData) {
+                for (let data of gpxData) {
+                    data.groupNumber = gpxData.filter((d) => d["osmand:group"] === data["osmand:group"]).indexOf(data) + 1
+                }
+
                 return gpxData.map((d) => `
   <wpt lat="${d.lat}" lon="${d.lng}">
     <name>${d.name}</name>
     <desc>${d.desc}</desc>
+    <type>${d["osmand:group"] || DEFAULT_GROUP}</type>
     <extensions>
       <osmand:address>${d["osmand:address"]}</osmand:address>
-      <osmand:color>${d["osmand:color"] || DEFAULT_COLOR}</osmand:color>
-      <osmand:background>circle</osmand:background>
+      <osmand:icon>special_number_${d.groupNumber}</osmand:icon>
     </extensions>
   </wpt>`).join('\n')
             }
 
             function gpxColorGroupTemplate(gpxData) {
                 const colors = new Set(gpxData.map((d) => d["osmand:color"] || DEFAULT_COLOR))
-                const colorGroups = Array.from(colors).map((c) => ({
-                    "osmand:group": gpxData.findIndex((d) => d.color === c)["osmand:group"],
-                    "color": c,
-                }))
-                return colorGroups.map((c) => `<group name="${c["osmand:group"] || ''}" color="${c.color}"/>`).join('\n      ')
+                const colorGroups = Array.from(colors).map((c) => {
+                    const group = (gpxData.filter((d) => d["osmand:color"] === c)[0]["osmand:group"]) || DEFAULT_GROUP
+                    return {
+                        "group": group,
+                        "color": c,
+                    }
+                })
+                return colorGroups.map((c) => `<group name="${c.group || DEFAULT_GROUP}" color="${c.color.trim()}" background="circle"/>`).join('\n      ')
             }
 
-            function generateGpx(tsv) {
+            function generateGpx(tsv, title) {
                 const headers = tsv[0]
                 const data = tsv.slice(1).map((r) => {
                    return headers.reduce((acc, h) => Object.assign(acc, { [h]: r[headers.indexOf(h)]}), {})
@@ -183,7 +196,7 @@
                     return gpxElementTemplate(data)
                 }, () => {
                     return gpxColorGroupTemplate(data)
-                })
+                }, title)
             }
 
             async function main() {
@@ -193,11 +206,12 @@
                     const tsvEl = getTsvEl()
                     const titleEl = getTitleEl()
                     const downloadEl = getDownloadEl()
-
-                    if (validTsv(tsvEl) && validTitle(titleEl)) {
-                        tsvEl.setCustomValidity('')
-                        titleEl.setCustomValidity('')
-                        const gpx = generateGpx(tsvEl.tsv)
+                    clearError(tsvEl)
+                    clearError(titleEl)
+                    const tsvValid = validTsv(tsvEl)
+                    const titleValid = validTitle(titleEl)
+                    if (tsvValid && titleValid) {
+                        const gpx = generateGpx(tsvEl.tsv, titleEl.value)
                         const gpxFile = new File([gpx], `${titleEl.value}.gpx`)
                         downloadEl.href = URL.createObjectURL(gpxFile)
                         downloadEl.classList.remove("hidden")
