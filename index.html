@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <title>OsmAnd Location Lists</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <meta name="description" content="" />
+
+        <style>
+            body {
+                font-family: sans-serif;
+                padding: 1em 0;
+            }
+
+            main {
+                width: 90%;
+                margin: auto;
+            }
+
+            section {
+                max-width: 50em;
+            }
+            form {
+                padding: 1em;
+                border: 1px solid black;
+                border-radius: 5px;
+            }
+
+            label {
+                display: block;
+                padding: 0.5em;
+            }
+
+            input, textarea {
+                display: block;
+                margin-top: 0.5em;
+            }
+            
+            input {
+                width: 20em;
+            }
+
+            a.result {
+                border: 1px solid lightgray;
+                border-radius: 5px;
+                display: block;
+                padding: 1em;
+                margin-top: 0.5em;
+            }
+
+            a.hidden {
+                display: none;
+            }
+
+
+            div.errors {
+                color: darkred;
+                margin-top: 0.5em;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <h1>Convert Location List to OsmAnd Location File</h1>
+            <section>
+                <h2>Instructions</h2>
+                <p>Create a copy of <a href="https://cryptpad.fr/sheet/#/2/sheet/view/nCXeJcCLfRsd1cECqaaaUNh2zdeFUsr6KgEsqtynUV0/">this Cryptpad spreadsheet</a>. Enter your location data, keeping in mind that the "color" and "osmand:group" columns are meant to work together, e.g. every distinct color should have the same group name.</p>
+                <p>Once you've entered the data, copy it along with the header row into the TSV data input below. Add a title for your list and click "Generate Location File".</p>
+                <p>A link should appear. Click the link to download the file. You can open with the OsmAnd app for <a href="https://play.google.com/store/apps/details?id=net.osmand">Android</a> or <a href="https://apps.apple.com/us/app/osmand-maps-travel-navigate/id934850257">iPhone</a>.</p>
+                <p>OsmAnd downloads your maps to your phone, so you'll have these locations even if you are offline.</p>
+            </section>
+            <section>
+                <h2>Location List Form</h2>
+                <form>
+                    <label for="title">
+                        List Title
+                        <input id="title" name="title" type="text" placeholder="Enter a title for your location list" />
+                        <div class="errors"></div>
+                    </label>
+                    
+                    <label for="tsv">
+                        TSV (Tab-Seperated Values) Data
+                        <textarea id="tsv" name="tsv" wrap="off" rows="20" cols="40" placeholder="Paste TSV data here"></textarea>
+                        <div class="errors"></div>
+                    </label>
+    
+                    <button id="submit" type="submit">Generate Location File</button>
+                </form>
+                <a id="download-link" class="hidden result" download="">Download Location File</a>
+            </section>
+        </main>
+        <script>
+            const HEADERS = new Set(["lat", "lon", "name", "desc", "osmand:address", "osmand:color", "osmand:group"])
+            const DEFAULT_COLOR = "#800080"
+            
+            function getTsvEl() {
+                const tsvEl = document.getElementById("tsv")
+                tsvEl.tsv = tsvEl.value.split('\n').map((r) => r.split('\t'))
+                return tsvEl
+            }
+
+            function getTitleEl() {
+                return document.getElementById("title")
+            }
+
+            function getDownloadEl() {
+                return document.getElementById("download-link")
+            }
+
+            function setError(inputEl, errorMessage) {
+                inputEl.setCustomValidity(errorMessage)
+                const errorEl = inputEl.nextElementSibling
+                errorEl.innerHTML = errorMessage
+            }
+
+            function validTsv(tsvEl) {
+                const tsv = tsvEl.tsv
+                const headers = new Set(tsv[0])
+                if (headers.difference(HEADERS).size > 0 || HEADERS.difference(headers).size > 0) {
+                    setError(tsvEl, "Incorrect header values, please see the example spreadsheet")
+                    return false
+                }
+                const rowLengths = new Set(tsv.map((r) => r.length))
+                if (rowLengths.size > 1) {
+                   setError(tsvEl, "Missing data values, please double check the provided text")
+                   return false
+                }
+                return true
+            }
+
+            function validTitle(titleEl) {
+                if (titleEl.value?.length <= 0) {
+                    setError(titleEl, "A title for the location list is required")
+                    return false
+                }
+                return true
+            }
+
+            function gpxWrapperTemplate(content, colorGroupContent) {
+                return `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<gpx version="1.1" creator="OsmAnd 4.9.10" xmlns="http://www.topografix.com/GPX/1/1" xmlns:osmand="https://osmand.net" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata>
+    <name>favorites</name>
+  </metadata>
+  ${content()}
+  <extensions>
+    <osmand:points_groups>
+      ${colorGroupContent()}
+    </osmand:points_groups>
+</extensions>
+</gpx>`
+            }
+
+            function gpxElementTemplate(gpxData) {
+                return gpxData.map((d) => `
+  <wpt lat="${d.lat}" lon="${d.lng}">
+    <name>${d.name}</name>
+    <desc>${d.desc}</desc>
+    <extensions>
+      <osmand:address>${d["osmand:address"]}</osmand:address>
+      <osmand:color>${d["osmand:color"] || DEFAULT_COLOR}</osmand:color>
+      <osmand:background>circle</osmand:background>
+    </extensions>
+  </wpt>`).join('\n')
+            }
+
+            function gpxColorGroupTemplate(gpxData) {
+                const colors = new Set(gpxData.map((d) => d["osmand:color"] || DEFAULT_COLOR))
+                const colorGroups = Array.from(colors).map((c) => ({
+                    "osmand:group": gpxData.findIndex((d) => d.color === c)["osmand:group"],
+                    "color": c,
+                }))
+                return colorGroups.map((c) => `<group name="${c["osmand:group"] || ''}" color="${c.color}"/>`).join('\n      ')
+            }
+
+            function generateGpx(tsv) {
+                const headers = tsv[0]
+                const data = tsv.slice(1).map((r) => {
+                   return headers.reduce((acc, h) => Object.assign(acc, { [h]: r[headers.indexOf(h)]}), {})
+                })
+                return gpxWrapperTemplate(() => {
+                    return gpxElementTemplate(data)
+                }, () => {
+                    return gpxColorGroupTemplate(data)
+                })
+            }
+
+            async function main() {
+                const submitEl = document.getElementById("submit")
+                submitEl.onclick = (e) => {
+                    e.preventDefault()
+                    const tsvEl = getTsvEl()
+                    const titleEl = getTitleEl()
+                    const downloadEl = getDownloadEl()
+
+                    if (validTsv(tsvEl) && validTitle(titleEl)) {
+                        tsvEl.setCustomValidity('')
+                        titleEl.setCustomValidity('')
+                        const gpx = generateGpx(tsvEl.tsv)
+                        const gpxFile = new File([gpx], `${titleEl.value}.gpx`)
+                        downloadEl.href = URL.createObjectURL(gpxFile)
+                        downloadEl.classList.remove("hidden")
+                    }
+                }
+            } 
+            main()
+        </script>
+    </body>
+</html>
