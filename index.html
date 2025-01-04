@@ -90,7 +90,7 @@
             </section>
         </main>
         <script>
-            const HEADERS = new Set(["lat", "lon", "name", "desc", "osmand:address", "osmand:color", "osmand:group"])
+            const HEADERS = new Set(["lat", "lon", "name", "desc", "osmand:address", "osmand:color", "osmand:group", "osmand:icon"])
             const DEFAULT_COLOR = "#800080"
             const DEFAULT_GROUP = "Locations"
 
@@ -170,7 +170,7 @@
     <type>${d["osmand:group"] || DEFAULT_GROUP}</type>
     <extensions>
       <osmand:address>${d["osmand:address"]}</osmand:address>
-      <osmand:icon>special_number_${d.groupNumber}</osmand:icon>
+      <osmand:icon>${d["osmand:icon"]}</osmand:icon>
     </extensions>
   </wpt>`).join('\n')
             }
